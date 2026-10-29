@@ -90,6 +90,16 @@ window.pty.onExit((id) => {
 // ---------- keys & clipboard ----------
 
 function handleKey(e, s) {
+  // Shift+Enter: send ESC+CR, which Claude Code reads as "new line" instead of "submit".
+  // Swallow keypress/keyup too, or xterm would still send a plain Enter.
+  if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey) {
+    if (e.type === 'keydown') {
+      s.quietUntil = Date.now() + KEY_QUIET_MS;
+      window.pty.write(s.id, '\x1b\r');
+    }
+    e.preventDefault();
+    return false;
+  }
   if (e.type !== 'keydown') return true;
   const key = e.key.toLowerCase();
 

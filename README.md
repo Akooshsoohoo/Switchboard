@@ -26,6 +26,7 @@ npm start
 | Close pane (session keeps running) | `×` on the pane title or Ctrl+Shift+W |
 | Kill session | `×` on its sidebar row |
 | Copy / paste | Ctrl+C with text selected / Ctrl+V |
+| New line in a Claude prompt (no submit) | Shift+Enter |
 
 ## How "working" is detected
 

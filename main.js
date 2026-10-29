@@ -24,9 +24,10 @@ function createWindow() {
 }
 
 ipcMain.on('pty:create', (_e, id, cols, rows) => {
-  // Drop the marker Claude Code sets, so `claude` still runs if this app was launched from inside it.
+  // Drop the markers Claude Code sets, so `claude` runs normally if this app was launched from inside it.
   const env = { ...process.env };
   delete env.CLAUDECODE;
+  delete env.CLAUDE_CODE_CHILD_SESSION;
 
   const p = pty.spawn('powershell.exe', ['-NoLogo'], {
     name: 'xterm-256color',
