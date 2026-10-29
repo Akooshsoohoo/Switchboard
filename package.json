@@ -1,0 +1,18 @@
+{
+  "name": "switchboard",
+  "version": "0.1.0",
+  "description": "Barebones multi-terminal: named sessions in a sidebar, side-by-side panes, working/waiting status.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@lydell/node-pty": "^1.1.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
