@@ -15,6 +15,14 @@ npm install
 npm start
 ```
 
+### Pin to the taskbar
+
+```
+npm run shortcut
+```
+
+This adds **Switchboard** to the Start menu. Search for it, right-click it, and choose **Pin to taskbar**.
+
 ## Controls
 
 | Action | How |

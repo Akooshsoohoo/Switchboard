@@ -5,6 +5,9 @@ const pty = require('@lydell/node-pty');
 // Shells start in the folder that contains Switchboard (The Mainframe).
 const START_DIR = path.resolve(__dirname, '..');
 
+// Must match the shortcut made by scripts/install-shortcut.js, so the taskbar pin launches Switchboard.
+app.setAppUserModelId('Switchboard');
+
 const ptys = new Map(); // session id -> pty process
 let win;
 

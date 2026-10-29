@@ -5,7 +5,8 @@
   "main": "main.js",
   "private": true,
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "shortcut": "electron scripts/install-shortcut.js"
   },
   "dependencies": {
     "@lydell/node-pty": "^1.1.0",
