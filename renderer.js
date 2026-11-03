@@ -427,6 +427,8 @@ function fitVisible() {
 }
 
 new ResizeObserver(() => fitVisible()).observe(mainEl);
+// Each pane resizes on its own (divider drags, splits), so refit when any pane body changes size.
+const paneObserver = new ResizeObserver(() => requestAnimationFrame(fitVisible));
 
 function startDividerDrag(e, node, split, first, second) {
   if (e.button !== 0) return;
@@ -562,6 +564,9 @@ function startRename(nameEl, id) {
   const input = document.createElement('input');
   input.className = 'rename';
   input.value = sessions.get(id).name;
+  // A draggable ancestor swallows text selection and caret clicks inside the input.
+  const dragParent = nameEl.closest('[draggable="true"]');
+  if (dragParent) dragParent.draggable = false;
   nameEl.replaceWith(input);
   input.focus();
   input.select();
@@ -569,6 +574,7 @@ function startRename(nameEl, id) {
   const finish = (save) => {
     if (done) return;
     done = true;
+    if (dragParent) dragParent.draggable = true;
     if (save) renameSession(id, input.value);
     else render();
   };
@@ -690,7 +696,12 @@ function renderPanes() {
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = s.name;
-    name.addEventListener('dblclick', () => startRename(name, id));
+    // Whole title bar is the double-click target (the name alone is a small, draggable target).
+    title.addEventListener('dblclick', (e) => {
+      if (e.target.closest('button, input')) return;
+      const current = title.querySelector('.name');
+      if (current) startRename(current, id);
+    });
     const x = document.createElement('button');
     x.className = 'x';
     x.textContent = '×';
@@ -715,6 +726,9 @@ function renderPanes() {
     return pane;
   }
   mainEl.append(renderNode(layout));
+  document.body.classList.toggle('multi-pane', panes.length > 1);
+  paneObserver.disconnect();
+  mainEl.querySelectorAll('.pane-body').forEach((el) => paneObserver.observe(el));
 
   // xterm needs to be in the DOM to measure its font, so open on first show.
   for (const id of panes) {
