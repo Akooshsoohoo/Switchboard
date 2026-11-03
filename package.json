@@ -1,11 +1,13 @@
 {
   "name": "switchboard",
   "version": "0.1.0",
-  "description": "Barebones multi-terminal: named sessions in a sidebar, side-by-side panes, working/waiting status.",
+  "description": "Minimal terminal workspace with named sessions, project folders, split panes, light and dark themes, and agent status.",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
+    "test": "node --test tests/*.test.js",
+    "test:smoke": "electron scripts/smoke-test.js",
     "shortcut": "electron scripts/install-shortcut.js"
   },
   "dependencies": {

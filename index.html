@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en" data-appearance="light">
   <head>
     <meta charset="utf-8" />
     <meta
@@ -7,18 +7,42 @@
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
     />
     <title>Switchboard</title>
+    <link rel="icon" href="assets/switchboard.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <header id="titlebar"><img src="assets/switchboard.svg" alt="" /><span>Switchboard</span></header>
     <aside id="sidebar">
+      <div class="sidebar-heading">
+        <span>Sessions</span>
+        <button id="toggle-sidebar" type="button" title="Minimize sidebar" aria-label="Minimize sidebar" aria-expanded="true" aria-controls="session-list projects new-session">&#x2039;</button>
+      </div>
       <div id="session-list"></div>
-      <button id="new-session" title="New session (Ctrl+Shift+T)">+ New</button>
+      <section id="projects" aria-label="Project presets">
+        <div class="projects-heading"><span>Projects</span><button id="add-project" title="Save a project folder" aria-label="Add project folder">+</button></div>
+        <div id="project-list"></div>
+        <div id="project-error" role="alert" hidden></div>
+      </section>
+      <button id="new-session" title="New terminal (Ctrl+Shift+T)"><span class="plus">+</span> New terminal <span class="shortcut">Ctrl ⇧ T</span></button>
+      <footer class="sidebar-footer"><button id="settings-toggle" class="icon-button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.3-1.5.9-2.3-.6-2.5 4.3 1.7 1.7v1.8l-1.7 1.7 2.5 4.3 2.3-.6 1.5.9.6 2.3h5l.6-2.3 1.5-.9 2.3.6 2.5-4.3-1.7-1.7v-1.8l1.7-1.7-2.5-4.3-2.3.6-1.5-.9-.6-2.3z"/><circle cx="12" cy="12.5" r="3"/></svg></button><span id="session-count">0 sessions</span></footer>
     </aside>
     <main id="main"></main>
+    <section id="settings" aria-label="Settings" hidden>
+      <div class="settings-heading">Settings<button id="settings-close" class="icon-button" aria-label="Close settings">×</button></div>
+      <p class="setting-label">Appearance</p>
+      <div class="appearance-options" aria-label="Appearance"><button data-appearance="light" aria-pressed="true">☀ &nbsp;Light</button><button data-appearance="dark" aria-pressed="false">☾ &nbsp;Dark</button></div>
+      <div class="settings-divider"></div><p class="setting-label">Session status</p>
+      <div class="legend-row"><span class="dot working-dot"></span><div>Working<small>The agent is running.</small></div></div>
+      <div class="legend-row"><span class="dot waiting-dot"></span><div>Waiting for you<small>Ready for your next message.</small></div></div>
+      <div class="legend-row"><span class="dot approval-dot"></span><div>Approval needed<small>Needs your permission to continue.</small></div></div>
+      <p class="status-note">Approval is detected from supported CLI prompts. Other quiet terminals show as waiting.</p>
+    </section>
 
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="appearance.js"></script>
+    <script src="session-status.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

@@ -1,4 +1,6 @@
-const { app, BrowserWindow, ipcMain, clipboard, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, Menu, dialog, nativeTheme } = require('electron');
+const fs = require('fs');
+const { randomUUID } = require('crypto');
 const path = require('path');
 const pty = require('@lydell/node-pty');
 
@@ -19,26 +21,41 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1400,
     height: 900,
-    backgroundColor: '#1a1b1e',
+    minWidth: 620,
+    minHeight: 420,
+    backgroundColor: '#ffffff',
+    icon: path.join(__dirname, 'assets', 'switchboard.ico'),
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#fafafa', symbolColor: '#77777b', height: 42 },
     title: 'Switchboard',
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   win.loadFile(path.join(__dirname, 'index.html'));
 }
 
-ipcMain.on('pty:create', (_e, id, cols, rows) => {
+ipcMain.on('pty:create', (_e, id, cols, rows, cwd) => {
   // Drop the markers Claude Code sets, so `claude` runs normally if this app was launched from inside it.
   const env = { ...process.env };
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_CHILD_SESSION;
 
-  const p = pty.spawn('powershell.exe', ['-NoLogo'], {
+  let p;
+  try {
+    const startDir = cwd || START_DIR;
+    // Profiles can change location. Apply the requested folder after they run.
+    const locationCommand = `Set-Location -LiteralPath '${startDir.replace(/'/g, "''")}'`;
+    p = pty.spawn('powershell.exe', ['-NoLogo', '-NoExit', '-Command', locationCommand], {
     name: 'xterm-256color',
     cols,
     rows,
-    cwd: START_DIR,
+    cwd: startDir,
     env,
-  });
+    });
+  } catch (error) {
+    send('pty:data', id, `\r\nCould not start terminal: ${error.message}\r\n`);
+    send('pty:exit', id);
+    return;
+  }
   p.onData((data) => send('pty:data', id, data));
   p.onExit(() => {
     ptys.delete(id);
@@ -61,7 +78,47 @@ ipcMain.on('pty:kill', (_e, id) => {
 });
 
 ipcMain.handle('clip:read', () => clipboard.readText());
+ipcMain.on('preferences:appearance', (_e, mode) => {
+  if (!['light', 'dark'].includes(mode)) return;
+  nativeTheme.themeSource = mode;
+  win?.setTitleBarOverlay({ color: mode === 'dark' ? '#242527' : '#fafafa', symbolColor: mode === 'dark' ? '#8f9097' : '#77777b', height: 42 });
+  win?.setBackgroundColor(mode === 'dark' ? '#202123' : '#ffffff');
+});
 ipcMain.on('clip:write', (_e, text) => clipboard.writeText(text));
+
+function readProjects() {
+  try {
+    const projects = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'projects.json'), 'utf8'));
+    return Array.isArray(projects) ? projects.filter(p => typeof p.id === 'string' && typeof p.name === 'string' && typeof p.cwd === 'string') : [];
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+function saveProjects(projects) {
+  const file = path.join(app.getPath('userData'), 'projects.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify(projects, null, 2));
+  fs.renameSync(`${file}.tmp`, file);
+  return projects;
+}
+
+ipcMain.handle('projects:list', () => readProjects());
+ipcMain.handle('projects:add', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Choose a project folder', defaultPath: START_DIR, properties: ['openDirectory'],
+  });
+  const projects = readProjects();
+  if (canceled || !filePaths.length) return projects;
+  const cwd = filePaths[0];
+  if (!projects.some(p => p.cwd.toLowerCase() === cwd.toLowerCase())) {
+    projects.push({ id: randomUUID(), name: path.basename(cwd) || cwd, cwd });
+    return saveProjects(projects);
+  }
+  return projects;
+});
+ipcMain.handle('projects:remove', (_e, id) => saveProjects(readProjects().filter(p => p.id !== id)));
 
 app.whenReady().then(() => {
   // No menu: its default shortcuts (Ctrl+R reload, Ctrl+W close) would steal keys from the shells.

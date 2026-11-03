@@ -10,6 +10,8 @@ app.whenReady().then(() => {
     target: process.execPath, // this project's electron.exe
     args: `"${root}"`,
     cwd: root,
+    icon: path.join(root, 'assets', 'switchboard.ico'),
+    iconIndex: 0,
     description: 'Named terminals side by side',
     appUserModelId: 'Switchboard', // matches app.setAppUserModelId in main.js
   });
