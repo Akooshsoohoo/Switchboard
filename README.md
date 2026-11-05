@@ -32,6 +32,7 @@ This adds **Switchboard** to the Start menu. Search for it, right-click it, and 
 | Action | How |
 | --- | --- |
 | New session | `+ New terminal` or Ctrl+Shift+T |
+| Zoom in / out / reset | Ctrl+Plus (or Ctrl+=) / Ctrl+Minus / Ctrl+0 |
 | Minimize / expand sidebar | Click the arrow at the top of the sidebar; your choice is remembered across restarts |
 | Show a session in the focused pane | Click it in the sidebar |
 | Open a session as a new pane below the others | Ctrl+click it in the sidebar |

@@ -22,6 +22,20 @@ app.whenReady().then(async () => {
     await win.loadFile(path.join(__dirname, '..', 'index.html'));
     await wait(300);
     assert.equal(await run('sessions.size'), 1);
+    await run(`
+      draggedId = 1;
+      const rect = document.querySelector('.pane').getBoundingClientRect();
+      document.querySelector('.pane').dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true,
+        clientX: rect.left + 5, clientY: rect.top + rect.height / 2, dataTransfer: new DataTransfer() }));
+    `);
+    assert.equal(await run('dropTarget.edge'), 'left');
+    await run("mainEl.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true }))");
+    assert.equal(await run("document.querySelectorAll('.empty-pane').length"), 1);
+    assert.equal(await run('panes.length'), 1);
+    const snapped = await run("({pane:document.querySelector('.pane').getBoundingClientRect().width, blank:document.querySelector('.empty-pane').getBoundingClientRect().width})");
+    assert.ok(Math.abs(snapped.pane - snapped.blank) < 2);
+    await run("placeSession(1, null, 'center'); removePane(0); showInFocused(1)");
+
     assert.equal(await run("document.documentElement.dataset.appearance"), 'light');
     assert.equal(await run("document.querySelectorAll('.row .session-icon').length"), 0);
     await run("document.getElementById('settings-toggle').click()");

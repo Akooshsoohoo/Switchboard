@@ -30,6 +30,18 @@ function createWindow() {
     title: 'Switchboard',
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
+  // Handle zoom before xterm receives the keys, including while a shell has focus.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !input.control || input.alt || input.meta) return;
+    const key = input.key;
+    const zoomIn = key === '+' || key === '=' || input.code === 'NumpadAdd';
+    const zoomOut = key === '-' || input.code === 'NumpadSubtract';
+    const reset = key === '0' || input.code === 'Numpad0';
+    if (!zoomIn && !zoomOut && !reset) return;
+    event.preventDefault();
+    const level = win.webContents.getZoomLevel();
+    win.webContents.setZoomLevel(reset ? 0 : Math.max(-3, Math.min(5, level + (zoomIn ? 0.5 : -0.5))));
+  });
   win.loadFile(path.join(__dirname, 'index.html'));
 }
 
@@ -119,6 +131,23 @@ ipcMain.handle('projects:add', async () => {
   return projects;
 });
 ipcMain.handle('projects:remove', (_e, id) => saveProjects(readProjects().filter(p => p.id !== id)));
+ipcMain.handle('projects:reorder', (_e, ids) => {
+  const projects = readProjects();
+  if (!Array.isArray(ids)) return projects;
+  const byId = new Map(projects.map(p => [p.id, p]));
+  const ordered = ids.map(id => byId.get(id)).filter(Boolean);
+  // Keep anything the renderer did not mention, so a stale list never deletes a project.
+  for (const p of projects) if (!ordered.includes(p)) ordered.push(p);
+  return saveProjects(ordered);
+});
+ipcMain.handle('projects:color', (_e, id, color) => {
+  const projects = readProjects();
+  const project = projects.find(p => p.id === id);
+  if (!project) return projects;
+  if (typeof color === 'string' && color !== 'Default') project.color = color;
+  else delete project.color;
+  return saveProjects(projects);
+});
 
 app.whenReady().then(() => {
   // No menu: its default shortcuts (Ctrl+R reload, Ctrl+W close) would steal keys from the shells.

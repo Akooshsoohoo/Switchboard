@@ -4,8 +4,8 @@
     dark: { background: '#202123', foreground: '#d7d7dc', cursor: '#d7d7dc', cursorAccent: '#202123', selectionBackground: '#454d60', black: '#37383c', red: '#e47970', green: '#81bb91', yellow: '#dcb96b', blue: '#8faede', magenta: '#c6a1d1', cyan: '#8abec4', white: '#d7d7dc', brightBlack: '#8c8e97', brightRed: '#f28d84', brightGreen: '#9bcea9', brightYellow: '#e7cc8b', brightBlue: '#abc5ee', brightMagenta: '#d8b7e0', brightCyan: '#a6d2d6', brightWhite: '#f2f2f5' },
   };
   const tints = {
-    Blue: ['#f0f5fc', '#202734'], Green: ['#f0f6f1', '#202c25'],
-    Purple: ['#f6f1fa', '#292333'], Rose: ['#fcf1f5', '#30232b'], Amber: ['#faf5e9', '#302b20'],
+    Blue: ['#e0ecfb', '#1d2d47'], Green: ['#dff1e5', '#1b3529'],
+    Purple: ['#ede2f8', '#2e2649'], Rose: ['#fbe0ea', '#40232f'], Amber: ['#f8ebc9', '#40341c'],
   };
   function terminalTheme(mode, tint) {
     const theme = { ...palettes[mode === 'dark' ? 'dark' : 'light'] };

@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('projects', {
   list: () => ipcRenderer.invoke('projects:list'),
   add: () => ipcRenderer.invoke('projects:add'),
   remove: (id) => ipcRenderer.invoke('projects:remove', id),
+  reorder: (ids) => ipcRenderer.invoke('projects:reorder', ids),
+  setColor: (id, color) => ipcRenderer.invoke('projects:color', id, color),
 });
 
 contextBridge.exposeInMainWorld('clip', {
