@@ -328,3 +328,13 @@ body.multi-pane .pane-title .x { visibility: visible; flex: none; }
 
 .empty-pane { flex: 1 1 0; min-width: 0; min-height: 0; background: var(--bg); }
 #sidebar.collapsed .row[style*="--session-tint"] { box-shadow: inset 4px 0 var(--session-accent); }
+
+/* Light-mode polish: deeper accents and softer fills so pastel dark-theme colors don't wash out. */
+:root:not([data-appearance="dark"]) .row[style*="--session-tint"] { box-shadow: inset 3px 0 color-mix(in srgb, var(--session-accent), #000 25%); }
+:root:not([data-appearance="dark"]) .pane[style*="--session-tint"] .pane-title { box-shadow: inset 3px 0 color-mix(in srgb, var(--session-accent), #000 25%); }
+:root:not([data-appearance="dark"]) .project-row[style*="--project-accent"] { border-left-color: color-mix(in srgb, var(--project-accent), #000 25%); background: color-mix(in srgb, var(--project-accent) 18%, transparent); }
+:root:not([data-appearance="dark"]) .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+:root:not([data-appearance="dark"]) .session-menu { box-shadow: 0 10px 30px #0002, 0 0 0 1px #0000000a; }
+:root:not([data-appearance="dark"]) .tint-swatch { box-shadow: inset 0 0 0 1px #0002; }
+
+:root:not([data-appearance="dark"]) #titlebar img { content: url("assets/switchboard-light.svg"); }
