@@ -24,7 +24,7 @@ function createWindow() {
     minWidth: 620,
     minHeight: 420,
     backgroundColor: '#ffffff',
-    icon: path.join(__dirname, 'assets', 'switchboard.ico'),
+    icon: path.join(__dirname, 'assets', 'switchboard-light.ico'),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#fafafa', symbolColor: '#77777b', height: 42 },
     title: 'Switchboard',
@@ -95,6 +95,7 @@ ipcMain.on('preferences:appearance', (_e, mode) => {
   nativeTheme.themeSource = mode;
   win?.setTitleBarOverlay({ color: mode === 'dark' ? '#242527' : '#fafafa', symbolColor: mode === 'dark' ? '#8f9097' : '#77777b', height: 42 });
   win?.setBackgroundColor(mode === 'dark' ? '#202123' : '#ffffff');
+  win?.setIcon(path.join(__dirname, 'assets', mode === 'dark' ? 'switchboard.ico' : 'switchboard-light.ico'));
 });
 ipcMain.on('clip:write', (_e, text) => clipboard.writeText(text));
 
