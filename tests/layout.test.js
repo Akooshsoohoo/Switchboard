@@ -66,11 +66,11 @@ test('closing panes preserves focus and collapses splits down to an empty layout
   assert.deepEqual(run('panes'), [4]);
 });
 
-test('self drops and stale targets leave the layout intact', () => {
+test('center self drops and stale targets leave the layout intact', () => {
   const run = setup();
   run('showInFocused(1); addPane(2);');
   const before = run('layout');
-  run("placeSession(1, 1, 'left'); placeSession(3, 5, 'right'); placeSession(99, 1, 'top');");
+  run("placeSession(1, 1, 'center'); placeSession(3, 5, 'right'); placeSession(99, 1, 'top');");
   assert.deepEqual(run('layout'), before);
 });
 
@@ -111,4 +111,32 @@ test('busy terminal output preserves sidebar click targets while updating metada
   assert.equal(run('metadata.hidden'), false);
   run("for (let i = 0; i < 100; i++) window.pty.receive(1, 'working...');");
   assert.equal(run('sessions.get(1).lastOutputAt > 0'), true);
+});
+
+ test('self edge drops snap into half the pane and leave a usable blank half', () => {
+  for (const edge of ['left', 'right', 'top', 'bottom']) {
+    const run = setup();
+    run(`showInFocused(1); placeSession(1, 1, '${edge}');`);
+    const before = edge === 'left' || edge === 'top';
+    assert.deepEqual(run('layout'), {
+      axis: ['left', 'right'].includes(edge) ? 'x' : 'y', ratio: 0.5,
+      first: { id: before ? 1 : null }, second: { id: before ? null : 1 },
+    });
+    assert.deepEqual(run('panes'), [1]);
+    assert.equal(run('panes[focused]'), 1);
+    run("placeSession(2, null, 'center');");
+    assert.deepEqual(run('panes'), before ? [1, 2] : [2, 1]);
+  }
+});
+
+test('moving into a blank half preserves a single session and closing clears the layout', () => {
+  const run = setup();
+  run("showInFocused(1); placeSession(1, 1, 'left'); placeSession(1, null, 'center');");
+  assert.deepEqual(run('layout.first'), { id: null });
+  assert.deepEqual(run('layout.second'), { id: 1 });
+  assert.deepEqual(run('panes'), [1]);
+  run('removePane(0);');
+  assert.deepEqual(run('panes'), []);
+  run('showInFocused(2);');
+  assert.deepEqual(run('layout'), { id: 2 });
 });

@@ -39,11 +39,11 @@ function updateSessionIndicators(s) {
 
 const TINTS = [
   { name: 'Default', accent: null, background: '#1a1b1e' },
-  { name: 'Blue', accent: '#6ba5ed', background: '#1a2331' },
-  { name: 'Green', accent: '#70bb93', background: '#1a2923' },
-  { name: 'Purple', accent: '#b399e5', background: '#252032' },
-  { name: 'Rose', accent: '#df93ac', background: '#302029' },
-  { name: 'Amber', accent: '#d9b36c', background: '#2c261c' },
+  { name: 'Blue', accent: '#6ba5ed', background: '#1d2d47' },
+  { name: 'Green', accent: '#70bb93', background: '#1b3529' },
+  { name: 'Purple', accent: '#b399e5', background: '#2e2649' },
+  { name: 'Rose', accent: '#df93ac', background: '#40232f' },
+  { name: 'Amber', accent: '#d9b36c', background: '#40341c' },
 ];
 let sessionMenu = null;
 
@@ -237,11 +237,34 @@ window.pty.onData((id, data) => {
   // Keep a bounded tail so labels split across PTY chunks can still be detected.
   s.metadataOutput = (s.metadataOutput + data).slice(-8000);
   const output = s.metadataOutput.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '');
-  const agent = /claude code/i.test(output) ? 'Claude' : /(?:openai\s+codex|codex\s+cli)/i.test(output) ? 'Codex' : /\b(?:agy|antigravity)\b/i.test(output) ? 'AGY' : null;
-  const models = [...output.matchAll(/\b(?:gpt-\d[\w.-]*|claude-(?:sonnet|opus|haiku)[\w.-]*|(?:sonnet|opus|haiku)\s+\d+(?:\.\d+)*|gemini-[\w.-]+)\b/gi)];
-  const labeled = [...output.matchAll(/\bmodel\s*:\s*([a-z0-9][a-z0-9._-]*)/gi)];
-  const model = labeled.at(-1)?.[1] || models.at(-1)?.[0];
-  if (agent && agent !== s.agent) { s.agent = agent; s.model = null; }
+  // The most recent mention wins, so switching agent or model updates the sidebar.
+  const lastIndex = (re) => { let i = -1; for (const m of output.matchAll(re)) i = m.index; return i; };
+  const agentPatterns = [
+    ['Claude', /claude code/gi],
+    ['Codex', /(?:openai\s+codex|codex\s+cli)/gi],
+    // AGY: only a command being run (line start, optional prompt) or its banner, never a
+    // mention in prose or a path such as ...\Local\agy\bin
+    ['AGY', /^[ \t]*(?:PS [^\n>]*>[ \t]*|[>$%#][ \t]*)?(?:agy(?:\.exe)?(?=[ \t]*(?:$|-|\w+\s*$))|[^\w\n]{0,4}[ \t]*antigravity\b)/gim],
+  ];
+  let agent = null, agentAt = -1;
+  for (const [name, re] of agentPatterns) {
+    const at = lastIndex(re);
+    if (at > agentAt) { agent = name; agentAt = at; }
+  }
+  let model = null, modelAt = -1;
+  const modelPatterns = [
+    [/\b(?:gpt-\d[\w.-]*|claude-(?:sonnet|opus|haiku)[\w.-]*|(?:sonnet|opus|haiku)\s+\d+(?:\.\d+)*|gemini-[\w.-]+)\b/gi, 0],
+    [/\bmodel\s*:\s*([a-z0-9][a-z0-9._-]*)/gi, 1],
+  ];
+  for (const [re, group] of modelPatterns) {
+    for (const m of output.matchAll(re)) {
+      if (m.index >= modelAt) { modelAt = m.index; model = m[group]; }
+    }
+  }
+  // Once Claude or Codex is identified, only a different banner or command replaces it,
+  // and AGY never overrides them from stray text.
+  const sticky = (s.agent === 'Claude' || s.agent === 'Codex') && agent === 'AGY' && !/^[ \t]*(?:PS [^\n>]*>[ \t]*|[>$%#][ \t]*)agy\b/im.test(output.slice(agentAt));
+  if (agent && agent !== s.agent && !sticky) { s.agent = agent; s.model = null; }
   if (model) s.model = model;
   if (previousMetadata !== `${s.agent}|${s.model}`) {
     const metadata = listEl.querySelector(`.row[data-id="${id}"] .session-metadata`);
@@ -277,6 +300,11 @@ function handleKey(e, s) {
     e.preventDefault();
     return false;
   }
+  if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey && !e.altKey) {
+    if (e.type === 'keydown') cycleSession();
+    e.preventDefault();
+    return false;
+  }
   if (e.type !== 'keydown') return true;
   const key = e.key.toLowerCase();
 
@@ -305,6 +333,14 @@ function handleKey(e, s) {
   return true;
 }
 
+// Shift+Tab: show the next session in the focused pane, wrapping around, like switching tabs.
+function cycleSession() {
+  const ids = [...sessions.keys()];
+  if (ids.length < 2) return;
+  const current = ids.indexOf(panes[focused]);
+  showInFocused(ids[(current + 1) % ids.length]);
+}
+
 function copySelection(s) {
   window.clip.write(s.term.getSelection());
   s.term.clearSelection();
@@ -327,12 +363,13 @@ document.addEventListener('keydown', (e) => {
   if (e.target.closest('.xterm') || e.target.classList.contains('rename')) return;
   const key = e.key.toLowerCase();
   if (e.ctrlKey && e.shiftKey && key === 't') showInFocused(createSession().id);
+  if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); cycleSession(); }
 });
 
 // ---------- panes ----------
 
 function visibleIds(node = layout) {
-  return !node ? [] : node.id !== undefined ? [node.id] : [...visibleIds(node.first), ...visibleIds(node.second)];
+  return !node ? [] : node.id !== undefined ? (node.id === null ? [] : [node.id]) : [...visibleIds(node.first), ...visibleIds(node.second)];
 }
 
 function mapLeaf(node, id, replace) {
@@ -385,9 +422,18 @@ function removePane(i) {
 
 function placeSession(id, targetId, edge) {
   if (!sessions.has(id) || (targetId !== null && !panes.includes(targetId))) return;
-  if (targetId === id) return;
+  if (targetId === id && edge === 'center') return;
   if (!layout) {
     layout = { id };
+  } else if (targetId === id) {
+    // Keep the unused half as a real drop target when snapping onto ourselves.
+    layout = mapLeaf(layout, id, () => {
+      const before = edge === 'left' || edge === 'top';
+      return {
+        axis: edge === 'left' || edge === 'right' ? 'x' : 'y', ratio: 0.5,
+        first: { id: before ? id : null }, second: { id: before ? null : id },
+      };
+    });
   } else if (edge === 'center') {
     // Moving a visible pane onto another swaps the two sessions.
     const alreadyVisible = panes.includes(id);
@@ -518,10 +564,9 @@ listEl.addEventListener('drop', (e) => {
 
 mainEl.addEventListener('dragover', (e) => {
   if (draggedId === null || !sessions.has(draggedId)) return;
-  const pane = e.target.closest('.pane');
+  const pane = e.target.closest('.pane, .empty-pane');
   if (!pane && panes.length) { clearDrop(); return; }
-  const targetId = pane ? Number(pane.dataset.id) : null;
-  if (targetId === draggedId) { clearDrop(); return; }
+  const targetId = pane && pane.dataset.id !== undefined ? Number(pane.dataset.id) : null;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   const rect = (pane || mainEl).getBoundingClientRect();
@@ -530,6 +575,7 @@ mainEl.addEventListener('dragover', (e) => {
   const nearest = Math.min(x, 1 - x, y, 1 - y);
   const edge = !pane || nearest > 0.28 ? 'center'
     : nearest === x ? 'left' : nearest === 1 - x ? 'right' : nearest === y ? 'top' : 'bottom';
+  if (targetId === draggedId && edge === 'center') { clearDrop(); return; }
   dropTarget = { id: targetId, edge };
   const mainRect = mainEl.getBoundingClientRect();
   const width = rect.width * (edge === 'left' || edge === 'right' ? 0.5 : 1);
@@ -679,6 +725,11 @@ function renderPanes() {
       split.append(first, divider, second);
       return split;
     }
+    if (node.id === null) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-pane';
+      return empty;
+    }
     const id = node.id;
     const i = panes.indexOf(id);
     const s = sessions.get(id);
@@ -777,6 +828,19 @@ document.getElementById('new-session').addEventListener('click', () => showInFoc
 // Saved folders open fresh terminals with the shell's working directory already set.
 const projectList = document.getElementById('project-list');
 const projectError = document.getElementById('project-error');
+const projectsSection = document.getElementById('projects');
+const toggleProjects = document.getElementById('toggle-projects');
+function setProjectsCollapsed(collapsed) {
+  projectsSection.classList.toggle('collapsed', collapsed);
+  toggleProjects.setAttribute('aria-expanded', String(!collapsed));
+  toggleProjects.title = collapsed ? 'Expand projects' : 'Minimize projects';
+  toggleProjects.setAttribute('aria-label', toggleProjects.title);
+  try { localStorage.setItem('projectsCollapsed', String(collapsed)); } catch { /* Storage may be unavailable. */ }
+}
+let projectsCollapsed = false;
+try { projectsCollapsed = localStorage.getItem('projectsCollapsed') === 'true'; } catch { /* Start expanded when storage is unavailable. */ }
+setProjectsCollapsed(projectsCollapsed);
+toggleProjects.addEventListener('click', () => setProjectsCollapsed(!projectsSection.classList.contains('collapsed')));
 function renderProjects(projects) {
   projectList.replaceChildren();
   if (!projects.length) {
@@ -785,9 +849,21 @@ function renderProjects(projects) {
     hint.textContent = 'Save folders with +';
     projectList.append(hint);
   }
+  currentProjects = projects;
   for (const project of projects) {
     const row = document.createElement('div');
     row.className = 'project-row';
+    row.dataset.projectId = project.id;
+    const tint = TINTS.find((t) => t.name === project.color);
+    if (tint?.accent) row.style.setProperty('--project-accent', tint.accent);
+    row.draggable = true;
+    row.addEventListener('dragstart', (e) => {
+      draggedProject = project.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('application/x-switchboard-project', project.id);
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => { draggedProject = null; clearProjectDrop(); row.classList.remove('dragging'); });
     const launch = document.createElement('button');
     launch.className = 'project-launch';
     launch.textContent = project.name;
@@ -807,6 +883,91 @@ function renderProjects(projects) {
     projectList.append(row);
   }
 }
+let currentProjects = [];
+let draggedProject = null;
+let projectDrop = null;
+function clearProjectDrop() {
+  projectDrop = null;
+  projectList.querySelectorAll('.drop-before, .drop-after').forEach((r) => r.classList.remove('drop-before', 'drop-after'));
+}
+projectList.addEventListener('dragover', (e) => {
+  if (draggedProject === null) return;
+  const row = e.target.closest('.project-row') || projectList.querySelector('.project-row:last-child');
+  if (!row) return;
+  e.preventDefault();
+  clearProjectDrop();
+  if (row.dataset.projectId === draggedProject) return;
+  const rect = row.getBoundingClientRect();
+  const after = e.clientY >= rect.top + rect.height / 2;
+  projectDrop = { id: row.dataset.projectId, after };
+  row.classList.add(after ? 'drop-after' : 'drop-before');
+});
+projectList.addEventListener('dragleave', (e) => {
+  if (!projectList.contains(e.relatedTarget)) clearProjectDrop();
+});
+projectList.addEventListener('drop', (e) => {
+  if (draggedProject === null) return;
+  e.preventDefault();
+  const drop = projectDrop;
+  const dragged = draggedProject;
+  draggedProject = null;
+  clearProjectDrop();
+  if (!drop) return;
+  const ids = currentProjects.map((p) => p.id).filter((id) => id !== dragged);
+  ids.splice(ids.indexOf(drop.id) + (drop.after ? 1 : 0), 0, dragged);
+  updateProjects(() => window.projects.reorder(ids));
+});
+
+function showProjectMenu(e, project) {
+  e.preventDefault();
+  closeSessionMenu();
+  const menu = document.createElement('div');
+  sessionMenu = menu;
+  menu.className = 'session-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', `${project.name} options`);
+  const heading = document.createElement('div');
+  heading.className = 'menu-heading';
+  heading.textContent = 'Project color';
+  menu.append(heading);
+  for (const tint of TINTS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('role', 'menuitemradio');
+    button.setAttribute('aria-checked', String((project.color || 'Default') === tint.name));
+    const swatch = document.createElement('span');
+    swatch.className = 'tint-swatch';
+    swatch.style.background = tint.accent || '#8a8d96';
+    button.append(swatch, document.createTextNode(tint.name));
+    button.addEventListener('click', () => {
+      closeSessionMenu();
+      updateProjects(() => window.projects.setColor(project.id, tint.name));
+    });
+    menu.append(button);
+  }
+  menu.addEventListener('keydown', (event) => {
+    if (!['ArrowDown', 'ArrowUp', 'Escape', 'Tab'].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape' || event.key === 'Tab') { closeSessionMenu(); return; }
+    const buttons = [...menu.querySelectorAll('button')];
+    const index = buttons.indexOf(document.activeElement);
+    buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length].focus();
+  });
+  document.body.append(menu);
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(e.clientX, window.innerWidth - rect.width - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(e.clientY, window.innerHeight - rect.height - 4))}px`;
+  menu.querySelector('button').focus();
+}
+projectList.addEventListener('contextmenu', (e) => {
+  const row = e.target.closest('.project-row');
+  const project = row && currentProjects.find((p) => p.id === row.dataset.projectId);
+  if (!project) return;
+  e.stopPropagation();
+  showProjectMenu(e, project);
+});
+
 async function updateProjects(action) {
   projectError.hidden = true;
   try { renderProjects(await action()); }
