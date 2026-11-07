@@ -300,6 +300,11 @@ function handleKey(e, s) {
     e.preventDefault();
     return false;
   }
+  if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey && !e.altKey) {
+    if (e.type === 'keydown') cycleSession();
+    e.preventDefault();
+    return false;
+  }
   if (e.type !== 'keydown') return true;
   const key = e.key.toLowerCase();
 
@@ -328,6 +333,14 @@ function handleKey(e, s) {
   return true;
 }
 
+// Shift+Tab: show the next session in the focused pane, wrapping around, like switching tabs.
+function cycleSession() {
+  const ids = [...sessions.keys()];
+  if (ids.length < 2) return;
+  const current = ids.indexOf(panes[focused]);
+  showInFocused(ids[(current + 1) % ids.length]);
+}
+
 function copySelection(s) {
   window.clip.write(s.term.getSelection());
   s.term.clearSelection();
@@ -350,6 +363,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target.closest('.xterm') || e.target.classList.contains('rename')) return;
   const key = e.key.toLowerCase();
   if (e.ctrlKey && e.shiftKey && key === 't') showInFocused(createSession().id);
+  if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); cycleSession(); }
 });
 
 // ---------- panes ----------
