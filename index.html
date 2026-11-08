@@ -25,6 +25,7 @@
         <div id="project-error" role="alert" hidden></div>
       </section>
       <button id="new-session" title="New terminal (Ctrl+Shift+T)"><span class="plus">+</span> New terminal <span class="shortcut">Ctrl ⇧ T</span></button>
+      <button id="open-file" title="Open a file; edits stay in a draft (Ctrl+O)"><span class="plus">+</span> Open file <span class="shortcut">Ctrl O</span></button>
       <footer class="sidebar-footer"><button id="settings-toggle" class="icon-button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.3-1.5.9-2.3-.6-2.5 4.3 1.7 1.7v1.8l-1.7 1.7 2.5 4.3 2.3-.6 1.5.9.6 2.3h5l.6-2.3 1.5-.9 2.3.6 2.5-4.3-1.7-1.7v-1.8l1.7-1.7-2.5-4.3-2.3.6-1.5-.9-.6-2.3z"/><circle cx="12" cy="12.5" r="3"/></svg></button><span id="session-count">0 sessions</span></footer>
     </aside>
     <main id="main"></main>
@@ -43,6 +44,7 @@
     <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
     <script src="appearance.js"></script>
     <script src="session-status.js"></script>
+    <script src="draft.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>
