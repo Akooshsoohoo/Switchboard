@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
     await run("document.querySelector('button[data-appearance=dark]').click()");
     assert.equal(await run('sessions.get(1).term.options.theme.background'), '#202123');
     await run("setSessionTint(1, TINTS[1]); setAppearance('light')");
-    assert.equal(await run('sessions.get(1).term.options.theme.background'), '#f0f5fc');
+    assert.equal(await run('sessions.get(1).term.options.theme.background'), '#e0ecfb');
     await run("setSessionTint(1, TINTS[0]); document.getElementById('new-session').click()");
     assert.equal(await run('sessions.size'), 2);
     await run('addPane(1)');
@@ -57,6 +57,7 @@ app.whenReady().then(async () => {
     await run("sessions.get(1).term.input('\\r')");
     assert.equal(await run('sessions.get(1).approval'), false);
     await run("setAppearance('dark')");
+    nextSessionId = 1; // a reload restarts the page, and the stubbed id counter with it
     await win.reload();
     await wait(500);
     assert.equal(await run('appearance'), 'dark');
