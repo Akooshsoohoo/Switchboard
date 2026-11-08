@@ -8,9 +8,10 @@ const sessions = new Map(); // id -> session
 let panes = []; // visible session ids in layout order
 let layout = null; // session leaf, or { axis, ratio, first, second }
 let focused = 0; // index into panes
-let nextId = 1;
 let draggedId = null;
+let externalDrag = null; // a session being dragged in from another window: { id, kind }
 let dropTarget = null;
+let lastTerminalId = null; // the terminal pane the user last used, where file panes send draft paths
 
 const listEl = document.getElementById('session-list');
 const mainEl = document.getElementById('main');
@@ -24,7 +25,15 @@ function terminalTheme(tint) {
 function statusClass(s) { return window.SwitchboardStatus.statusClass(s); }
 function statusText(s) { return window.SwitchboardStatus.statusText(s); }
 
+// A file pane has no terminal; focus whichever input the session owns.
+function focusSession(s) {
+  if (!s) return;
+  if (s.kind === 'file') s.textarea.focus();
+  else s.term.focus();
+}
+
 function updateSessionIndicators(s) {
+  if (s.kind === 'file') return;
   const row = listEl.querySelector(`.row[data-id="${s.id}"]`);
   if (!row) return;
   row.classList.remove('working', 'waiting', 'approval', 'exited');
@@ -59,8 +68,10 @@ function setSessionTint(id, tint) {
   const s = sessions.get(id);
   if (!s) return;
   s.tint = tint.name;
-  s.term.options.theme = terminalTheme(tint.name);
-  s.host.style.background = s.term.options.theme.background;
+  if (s.kind !== 'file') {
+    s.term.options.theme = terminalTheme(tint.name);
+    s.host.style.background = s.term.options.theme.background;
+  }
   renderSidebar();
   const pane = mainEl.querySelector(`.pane[data-id="${id}"]`);
   if (pane) {
@@ -74,7 +85,7 @@ function closeSessionMenu(restoreFocus = false) {
   if (!sessionMenu) return;
   sessionMenu.remove();
   sessionMenu = null;
-  if (restoreFocus) sessions.get(panes[focused])?.term.focus();
+  if (restoreFocus) focusSession(sessions.get(panes[focused]));
 }
 
 function showSessionMenu(e, id) {
@@ -108,7 +119,7 @@ function showSessionMenu(e, id) {
   }
   for (const tint of TINTS) item(tint.name, () => {
     setSessionTint(id, tint);
-    sessions.get(panes[focused])?.term.focus();
+    focusSession(sessions.get(panes[focused]));
   }, tint);
   const divider = document.createElement('div');
   divider.className = 'menu-separator';
@@ -119,7 +130,7 @@ function showSessionMenu(e, id) {
   });
   if (!panes.includes(id)) item('Open beside', () => addPane(id));
   else item('Close pane', () => removePane(panes.indexOf(id)));
-  item('Kill session', () => killSession(id));
+  item(s.kind === 'file' ? 'Close file' : 'Kill session', () => killSession(id));
   menu.addEventListener('keydown', (event) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape', 'Tab'].includes(event.key)) return;
     event.preventDefault();
@@ -153,24 +164,28 @@ window.addEventListener('resize', () => closeSessionMenu());
 
 // ---------- sessions ----------
 
-function createSession(project) {
-  const id = nextId++;
+// `restore` is a session arriving from another window: it keeps its id, name, tint and agent info,
+// and its recent output is replayed into the new terminal. The shell itself is already running.
+function createSession(project, restore) {
+  const id = restore ? restore.id : window.pty.newId();
   const term = new Terminal({
     fontFamily: 'Cascadia Mono, Consolas, monospace',
     fontSize: 13,
     cursorBlink: true,
     scrollback: 5000,
-    theme: terminalTheme(),
+    theme: terminalTheme(restore?.tint),
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
 
   const host = document.createElement('div');
   host.className = 'term-host';
+  if (restore?.tint) host.style.background = term.options.theme.background;
 
   const s = {
     id,
-    name: project?.name || `term-${id}`,
+    name: restore?.name || project?.name || `term-${id}`,
+    tint: restore?.tint,
     term,
     fit,
     host,
@@ -182,11 +197,18 @@ function createSession(project) {
     exited: false,
     approval: false,
     approvalOutput: '',
-    agent: null,
-    model: null,
-    metadataOutput: "",
+    agent: restore?.agent ?? null,
+    model: restore?.model ?? null,
+    metadataOutput: restore ? restore.buffer.slice(-8000) : "",
   };
   sessions.set(id, s);
+  if (restore) {
+    term.write(restore.buffer);
+    if (restore.exited) {
+      s.exited = true;
+      term.write('\r\n[process exited]\r\n');
+    }
+  }
 
   term.onData((data) => {
     if (/[\r\n\x03\x1b]/.test(data) && !/^\x1b\[[A-D]$/.test(data)) {
@@ -199,15 +221,18 @@ function createSession(project) {
   });
   term.attachCustomKeyEventHandler((e) => handleKey(e, s));
 
-  window.pty.create(id, 80, 24, project?.cwd);
+  if (!restore) window.pty.create(id, 80, 24, project?.cwd);
   return s;
 }
 
 function killSession(id) {
   const s = sessions.get(id);
   if (!s) return;
-  window.pty.kill(id);
-  s.term.dispose();
+  if (s.kind === 'file') s.dispose();
+  else {
+    window.pty.kill(id);
+    s.term.dispose();
+  }
   sessions.delete(id);
   const i = panes.indexOf(id);
   if (i !== -1) removePane(i);
@@ -364,6 +389,8 @@ document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   if (e.ctrlKey && e.shiftKey && key === 't') showInFocused(createSession().id);
   if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); cycleSession(); }
+  // Ctrl+O is left alone inside terminals, where Claude Code uses it.
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && key === 'o') { e.preventDefault(); openFile(); }
 });
 
 // ---------- panes ----------
@@ -462,7 +489,7 @@ function placeSession(id, targetId, edge) {
 function fitVisible() {
   for (const id of panes) {
     const s = sessions.get(id);
-    if (!s || !s.opened) continue;
+    if (!s || !s.opened || s.kind === 'file') continue;
     const { cols, rows } = s.term;
     s.fit.fit();
     if (s.term.cols !== cols || s.term.rows !== rows) {
@@ -516,6 +543,17 @@ function clearDrop() {
   });
 }
 
+// True while a session is being dragged: one of ours, or one coming in from another window.
+function dragInProgress() {
+  return draggedId !== null ? sessions.has(draggedId) : externalDrag !== null;
+}
+
+function endDrag() {
+  draggedId = null;
+  clearDrop();
+  document.body.classList.remove('dragging-session');
+}
+
 function makeDraggable(element, id) {
   element.draggable = true;
   element.addEventListener('dragstart', (e) => {
@@ -524,17 +562,65 @@ function makeDraggable(element, id) {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('application/x-switchboard-session', String(id));
     document.body.classList.add('dragging-session');
+    // Tell the other windows, so they accept a drop of this session.
+    window.sessionMove.dragBegin(id, sessions.get(id)?.kind === 'file' ? 'file' : 'terminal');
   });
   element.addEventListener('dragend', () => {
-    draggedId = null;
-    clearDrop();
-    document.body.classList.remove('dragging-session');
+    endDrag();
+    window.sessionMove.dragEnd();
     renderSidebar();
   });
 }
 
+// A session dragged in from another window: ask main to move it here, then show it where it was dropped.
+async function adoptSession(drag, place) {
+  const reply = await window.sessionMove.take(drag.id);
+  if (!reply || reply.error) { showFileError(reply?.error || 'Could not move that session.'); return; }
+  const { snapshot } = reply;
+  let s;
+  if (snapshot.kind === 'file') {
+    // A file pane has no shell; its draft is on disk, so reopen it from there.
+    const opened = await window.files.openPath(snapshot.file);
+    if (opened.error) { showFileError(opened.error); return; }
+    s = createFileSession(opened, { ...snapshot, id: drag.id });
+  } else {
+    // Build the terminal in the same step as the reply, so no output that follows is dropped.
+    s = createSession(null, { ...snapshot, id: drag.id, buffer: reply.buffer });
+  }
+  place(s.id);
+}
+
+window.sessionMove.onDragState((drag) => {
+  externalDrag = drag;
+  document.body.classList.toggle('dragging-session', drag !== null);
+  if (!drag) clearDrop();
+});
+
+// Another window took one of our sessions: let go of it without killing the shell, and describe it.
+window.sessionMove.onRelease(async (id) => {
+  const s = sessions.get(id);
+  if (!s) return null;
+  const snapshot = { kind: s.kind === 'file' ? 'file' : 'terminal', name: s.name, tint: s.tint };
+  if (s.kind === 'file') {
+    await s.flush();
+    snapshot.file = s.file;
+    s.dispose();
+  } else {
+    Object.assign(snapshot, { agent: s.agent, model: s.model, exited: s.exited });
+    s.term.dispose();
+  }
+  sessions.delete(id);
+  if (lastTerminalId === id) lastTerminalId = null;
+  // The drag's source row is about to vanish, and then its dragend never fires, so end the drag here.
+  endDrag();
+  const i = panes.indexOf(id);
+  if (i !== -1) removePane(i);
+  else render();
+  return snapshot;
+});
+
 listEl.addEventListener('dragover', (e) => {
-  if (draggedId === null || !sessions.has(draggedId)) return;
+  if (!dragInProgress()) return;
   clearDrop();
   const row = e.target.closest('.row') || listEl.lastElementChild;
   if (!row) return;
@@ -553,17 +639,27 @@ listEl.addEventListener('dragleave', (e) => {
 });
 
 listEl.addEventListener('drop', (e) => {
-  if (draggedId === null) return;
+  if (draggedId === null && externalDrag === null) return;
   e.preventDefault();
-  if (dropTarget?.sidebar) reorderSession(draggedId, dropTarget.id, dropTarget.after);
-  draggedId = null;
-  clearDrop();
-  document.body.classList.remove('dragging-session');
+  const target = dropTarget;
+  if (draggedId === null) {
+    // From another window: bring it in here, hidden, at the spot you dropped it.
+    const drag = externalDrag;
+    externalDrag = null;
+    clearDrop();
+    adoptSession(drag, (id) => {
+      if (target?.sidebar) reorderSession(id, target.id, target.after);
+      renderSidebar();
+    });
+    return;
+  }
+  if (target?.sidebar) reorderSession(draggedId, target.id, target.after);
+  endDrag();
   renderSidebar();
 });
 
 mainEl.addEventListener('dragover', (e) => {
-  if (draggedId === null || !sessions.has(draggedId)) return;
+  if (!dragInProgress()) return;
   const pane = e.target.closest('.pane, .empty-pane');
   if (!pane && panes.length) { clearDrop(); return; }
   const targetId = pane && pane.dataset.id !== undefined ? Number(pane.dataset.id) : null;
@@ -594,13 +690,18 @@ mainEl.addEventListener('dragleave', (e) => {
 });
 
 mainEl.addEventListener('drop', (e) => {
-  if (draggedId === null || !dropTarget) return;
+  if ((draggedId === null && externalDrag === null) || !dropTarget) return;
   e.preventDefault();
   const { id, edge } = dropTarget;
+  if (draggedId === null) {
+    const drag = externalDrag;
+    externalDrag = null;
+    clearDrop();
+    adoptSession(drag, (sourceId) => placeSession(sourceId, id, edge));
+    return;
+  }
   const sourceId = draggedId;
-  draggedId = null;
-  clearDrop();
-  document.body.classList.remove('dragging-session');
+  endDrag();
   placeSession(sourceId, id, edge);
 });
 
@@ -639,7 +740,7 @@ function renderSidebar() {
   listEl.replaceChildren();
   for (const s of sessions.values()) {
     const row = document.createElement('div');
-    row.className = `row ${statusClass(s)}`;
+    row.className = `row ${s.kind === 'file' ? 'exited file' : statusClass(s)}`;
     row.dataset.id = s.id;
     applyTint(row, s);
     if (panes.includes(s.id)) row.classList.add('shown');
@@ -657,12 +758,12 @@ function renderSidebar() {
     name.textContent = s.name;
     const status = document.createElement('span');
     status.className = 'status';
-    status.textContent = statusText(s);
+    status.textContent = s.kind === 'file' ? 'Draft' : statusText(s);
     const x = document.createElement('button');
     x.className = 'x';
     x.textContent = '×';
-    x.title = 'Kill session';
-    x.setAttribute('aria-label', `Kill ${s.name}`);
+    x.title = s.kind === 'file' ? 'Close file (your draft is kept)' : 'Kill session';
+    x.setAttribute('aria-label', `${s.kind === 'file' ? 'Close' : 'Kill'} ${s.name}`);
 
     const details = document.createElement('div');
     details.className = 'session-details';
@@ -672,13 +773,17 @@ function renderSidebar() {
       metadata.className = 'session-metadata';
       metadata.hidden = !s.agent && !s.model;
       metadata.textContent = [s.agent, s.model].filter(Boolean).join(' · ') || 'PowerShell';
+      if (s.kind === 'file') {
+        metadata.hidden = false;
+        metadata.textContent = 'File draft';
+      }
       metadata.title = metadata.textContent;
       details.append(metadata);
     }
     row.append(details, status, dot, x);
     row.tabIndex = 0;
     row.setAttribute('role', 'button');
-    row.setAttribute('aria-label', `${s.name}, ${statusText(s)}`);
+    row.setAttribute('aria-label', `${s.name}, ${s.kind === 'file' ? 'file draft' : statusText(s)}`);
     row.addEventListener('keydown', (e) => {
       if (e.target !== row || !['Enter', ' '].includes(e.key)) return;
       e.preventDefault();
@@ -772,7 +877,9 @@ function renderPanes() {
         focused = panes.indexOf(id);
         mainEl.querySelectorAll('.pane').forEach((p, j) => p.classList.toggle('focused', j === focused));
       }
-      s.term.focus();
+      if (s.kind !== 'file') lastTerminalId = id;
+      else checkStale(s);
+      focusSession(s);
     }, true);
     return pane;
   }
@@ -788,6 +895,7 @@ function renderPanes() {
       s.term.open(s.host);
       s.opened = true;
       s.term.textarea.addEventListener('focus', () => {
+        lastTerminalId = id;
         const j = panes.indexOf(id);
         if (j !== -1 && j !== focused) {
           focused = j;
@@ -799,8 +907,11 @@ function renderPanes() {
 
   requestAnimationFrame(() => {
     fitVisible();
-    for (const id of panes) sessions.get(id).term.refresh(0, sessions.get(id).term.rows - 1);
-    sessions.get(panes[focused])?.term.focus();
+    for (const id of panes) {
+      const s = sessions.get(id);
+      if (s.kind !== 'file') s.term.refresh(0, s.term.rows - 1);
+    }
+    focusSession(sessions.get(panes[focused]));
   });
 }
 
@@ -808,6 +919,205 @@ function render() {
   renderSidebar();
   renderPanes();
 }
+
+// ---------- file panes (pseudoedit) ----------
+// A file pane shows a text file you can edit. The original is never written: edits autosave to a
+// draft copy (and a diff) in the app's data folder, and "Send path" types where they are into a terminal.
+
+const DRAFT_SAVE_MS = 500;
+
+function showFileError(message) {
+  projectError.textContent = message;
+  projectError.hidden = false;
+}
+
+async function openFile() {
+  const opened = await window.files.open();
+  if (!opened) return;
+  if (opened.error) { showFileError(opened.error); return; }
+  projectError.hidden = true;
+  showInFocused(createFileSession(opened).id);
+}
+
+// The terminal to send a draft path to: the one you used last if it is on screen, else the first on screen.
+function targetTerminal() {
+  const visible = panes.map((id) => sessions.get(id)).filter((x) => x && x.kind !== 'file' && !x.exited);
+  return visible.find((x) => x.id === lastTerminalId) || visible[0] || null;
+}
+
+async function checkStale(s) {
+  if (!s || s.kind !== 'file' || s.checking) return;
+  s.checking = true;
+  try {
+    const mtime = await window.files.stat(s.file);
+    s.banner.hidden = !(mtime !== null && mtime > s.baseline);
+  } finally { s.checking = false; }
+}
+
+function createFileSession(opened, restore) {
+  const id = restore ? restore.id : window.pty.newId();
+  const file = opened.path;
+  const base = file.split(/[\\/]/).pop() || file;
+  const element = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+
+  const host = element('div', 'file-host');
+  const toolbar = element('div', 'file-toolbar');
+  const badge = element('span', 'file-badge');
+  badge.title = file;
+  const diffButton = element('button', '', 'Diff');
+  diffButton.type = 'button';
+  diffButton.title = 'Show what differs from the original';
+  diffButton.setAttribute('aria-pressed', 'false');
+  const sendButton = element('button', '', 'Send path');
+  sendButton.type = 'button';
+  sendButton.title = 'Type the draft path into your terminal (does not press Enter)';
+  const resetButton = element('button', '', 'Reset');
+  resetButton.type = 'button';
+  resetButton.title = 'Throw away your edits and show the original again';
+  toolbar.append(badge, diffButton, sendButton, resetButton);
+
+  const banner = element('div', 'file-banner');
+  banner.hidden = true;
+  const bannerText = element('span', '', 'The original changed on disk after you opened it. Your draft still shows your edits.');
+  const reloadButton = element('button', '', 'Reload original');
+  reloadButton.type = 'button';
+  banner.append(bannerText, reloadButton);
+
+  const editor = element('div', 'file-editor');
+  const gutter = element('pre', 'file-gutter');
+  gutter.setAttribute('aria-hidden', 'true');
+  const textarea = element('textarea', 'file-text');
+  textarea.spellcheck = false;
+  textarea.wrap = 'off';
+  textarea.setAttribute('aria-label', `${base} (draft)`);
+  editor.append(gutter, textarea);
+  const diffView = element('pre', 'file-diff');
+  diffView.hidden = true;
+  host.append(toolbar, banner, editor, diffView);
+
+  let timer = null;
+  let edited = opened.draft !== undefined;
+  let resetArmed = null;
+  const s = {
+    id, kind: 'file', name: restore?.name || base, tint: restore?.tint, host, textarea, banner, file,
+    origText: opened.text,
+    // The original counts as changed if it is newer than whatever we last looked at.
+    baseline: opened.draft !== undefined ? opened.draftMtimeMs : opened.mtimeMs,
+    opened: true, exited: false, working: false, unseen: false, approval: false, lastOutputAt: 0,
+    dispose() { clearTimeout(timer); clearTimeout(resetArmed); },
+    // Write any edit still waiting on the autosave timer, so a move to another window loses nothing.
+    async flush() { if (timer) await saveNow(); },
+  };
+  textarea.value = opened.draft !== undefined ? opened.draft : opened.text;
+  sessions.set(id, s);
+
+  function updateGutter() {
+    const count = textarea.value.split('\n').length;
+    gutter.textContent = Array.from({ length: count }, (_, i) => i + 1).join('\n');
+  }
+  function updateBadge(text) {
+    badge.textContent = text || `${edited ? 'Edited draft' : 'Draft'} · original stays untouched`;
+  }
+  function renderDiff() {
+    const diff = window.SwitchboardDraft.unifiedDiff(s.origText, textarea.value, base);
+    diffView.replaceChildren();
+    if (!diff) { diffView.textContent = 'No changes from the original.'; return; }
+    for (const line of diff.split('\n')) {
+      const cls = line.startsWith('@@') ? 'hunk' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '';
+      diffView.append(element('div', cls, line || ' '));
+    }
+  }
+  async function saveNow() {
+    clearTimeout(timer);
+    timer = null;
+    const result = await window.files.saveDraft(file, textarea.value, s.origText);
+    if (result.error) { updateBadge(`Could not save draft: ${result.error}`); return null; }
+    s.draftPath = result.draftPath;
+    s.diffPath = result.diffPath;
+    updateBadge();
+    return result;
+  }
+
+  textarea.addEventListener('input', () => {
+    edited = true;
+    updateGutter();
+    updateBadge();
+    if (!diffView.hidden) renderDiff();
+    clearTimeout(timer);
+    timer = setTimeout(saveNow, DRAFT_SAVE_MS);
+  });
+  textarea.addEventListener('scroll', () => { gutter.scrollTop = textarea.scrollTop; });
+  textarea.addEventListener('keydown', (e) => {
+    // Tab types a tab instead of leaving the editor.
+    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      textarea.setRangeText('\t', textarea.selectionStart, textarea.selectionEnd, 'end');
+      textarea.dispatchEvent(new Event('input'));
+    }
+  });
+
+  diffButton.addEventListener('click', () => {
+    const showing = diffView.hidden;
+    if (showing) renderDiff();
+    diffView.hidden = !showing;
+    editor.hidden = showing;
+    diffButton.setAttribute('aria-pressed', String(showing));
+    diffButton.textContent = showing ? 'Edit' : 'Diff';
+  });
+  sendButton.addEventListener('click', async () => {
+    const terminal = targetTerminal();
+    if (!terminal) { updateBadge('Show a terminal pane first, then send.'); return; }
+    const result = await saveNow();
+    if (!result) return;
+    terminal.term.paste(`Draft of ${file} is at ${result.draftPath} (diff against the original: ${result.diffPath}) `);
+    updateBadge(`Sent the draft path to ${terminal.name}.`);
+    focusSession(terminal);
+  });
+  resetButton.addEventListener('click', async () => {
+    if (!resetArmed) {
+      resetButton.textContent = 'Confirm reset';
+      resetArmed = setTimeout(() => { resetArmed = null; resetButton.textContent = 'Reset'; }, 3000);
+      return;
+    }
+    clearTimeout(resetArmed);
+    resetArmed = null;
+    resetButton.textContent = 'Reset';
+    clearTimeout(timer);
+    timer = null;
+    const result = await window.files.discardDraft(file);
+    if (result.error) { updateBadge(`Could not reset: ${result.error}`); return; }
+    textarea.value = s.origText;
+    edited = false;
+    s.draftPath = s.diffPath = null;
+    updateGutter();
+    updateBadge();
+    if (!diffView.hidden) renderDiff();
+  });
+  reloadButton.addEventListener('click', async () => {
+    const latest = await window.files.read(file);
+    if (latest.error) { updateBadge(latest.error); return; }
+    s.origText = latest.text;
+    s.baseline = latest.mtimeMs;
+    banner.hidden = true;
+    if (edited) await saveNow();
+    if (!diffView.hidden) renderDiff();
+  });
+
+  updateGutter();
+  updateBadge();
+  checkStale(s);
+  return s;
+}
+
+document.getElementById('open-file').addEventListener('click', openFile);
+window.addEventListener('focus', () => {
+  for (const id of panes) checkStale(sessions.get(id));
+});
 
 // ---------- status ----------
 
@@ -1014,6 +1324,7 @@ function setAppearance(mode) {
     button.setAttribute('aria-pressed', String(button.dataset.appearance === appearance));
   });
   for (const s of sessions.values()) {
+    if (s.kind === 'file') continue;
     s.term.options.theme = terminalTheme(s.tint);
     s.host.style.background = s.term.options.theme.background;
   }
@@ -1046,4 +1357,21 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !settingsEl.hidden) { event.preventDefault(); setSettingsOpen(false); }
 });
 setAppearance(appearance);
+// Another window changed the theme (they share storage), so follow it.
+window.addEventListener('storage', (e) => {
+  if (e.key === 'appearance' && e.newValue && e.newValue !== appearance) setAppearance(e.newValue);
+});
 showInFocused(createSession().id);
+
+// Explorer's "Open with": a file opens in the draft-protected viewer, a folder opens a new terminal there.
+window.shellOpen.onOpen(async (item) => {
+  if (item.kind === 'folder') {
+    await updateProjects(() => window.projects.list());
+    showInFocused(createSession(item.project).id);
+  } else if (item.opened.error) {
+    showFileError(item.opened.error);
+  } else {
+    projectError.hidden = true;
+    showInFocused(createFileSession(item.opened).id);
+  }
+});

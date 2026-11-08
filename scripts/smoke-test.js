@@ -9,6 +9,8 @@ app.setPath('userData', profile);
 let win;
 const created = [];
 ipcMain.handle('projects:list', () => []);
+let nextSessionId = 1;
+ipcMain.on('session:newId', (e) => { e.returnValue = nextSessionId++; });
 ipcMain.on('pty:create', (_e, id) => created.push(id));
 ipcMain.on('pty:resize', () => {});
 ipcMain.on('preferences:appearance', () => {});
