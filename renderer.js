@@ -173,6 +173,8 @@ function createSession(project, restore) {
     fontSize: 13,
     cursorBlink: true,
     scrollback: 5000,
+    overviewRulerWidth: 8,
+    allowProposedApi: true, // registerDecoration, used for the prompt ticks
     theme: terminalTheme(restore?.tint),
   });
   const fit = new FitAddon.FitAddon();
@@ -202,6 +204,8 @@ function createSession(project, restore) {
     metadataOutput: restore ? restore.buffer.slice(-8000) : "",
   };
   sessions.set(id, s);
+  // Ticks on the scrollbar at each prompt you sent, so a long chat is easy to navigate.
+  SwitchboardPromptTicks.attach(term, '#4c8dff');
   if (restore) {
     term.write(restore.buffer);
     if (restore.exited) {
