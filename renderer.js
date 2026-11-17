@@ -28,7 +28,7 @@ function statusText(s) { return window.SwitchboardStatus.statusText(s); }
 // A file pane has no terminal; focus whichever input the session owns.
 function focusSession(s) {
   if (!s) return;
-  if (s.kind === 'file') s.textarea.focus();
+  if (s.kind === 'file') (s.textarea || s.host).focus();
   else s.term.focus();
 }
 
@@ -762,11 +762,11 @@ function renderSidebar() {
     name.textContent = s.name;
     const status = document.createElement('span');
     status.className = 'status';
-    status.textContent = s.kind === 'file' ? 'Draft' : statusText(s);
+    status.textContent = s.kind === 'file' ? (s.viewer ? 'View' : 'Draft') : statusText(s);
     const x = document.createElement('button');
     x.className = 'x';
     x.textContent = '×';
-    x.title = s.kind === 'file' ? 'Close file (your draft is kept)' : 'Kill session';
+    x.title = s.kind === 'file' ? (s.viewer ? 'Close file' : 'Close file (your draft is kept)') : 'Kill session';
     x.setAttribute('aria-label', `${s.kind === 'file' ? 'Close' : 'Kill'} ${s.name}`);
 
     const details = document.createElement('div');
@@ -779,7 +779,7 @@ function renderSidebar() {
       metadata.textContent = [s.agent, s.model].filter(Boolean).join(' · ') || 'PowerShell';
       if (s.kind === 'file') {
         metadata.hidden = false;
-        metadata.textContent = 'File draft';
+        metadata.textContent = s.viewer ? 'File viewer' : 'File draft';
       }
       metadata.title = metadata.textContent;
       details.append(metadata);
@@ -787,7 +787,7 @@ function renderSidebar() {
     row.append(details, status, dot, x);
     row.tabIndex = 0;
     row.setAttribute('role', 'button');
-    row.setAttribute('aria-label', `${s.name}, ${s.kind === 'file' ? 'file draft' : statusText(s)}`);
+    row.setAttribute('aria-label', `${s.name}, ${s.kind === 'file' ? (s.viewer ? 'file viewer' : 'file draft') : statusText(s)}`);
     row.addEventListener('keydown', (e) => {
       if (e.target !== row || !['Enter', ' '].includes(e.key)) return;
       e.preventDefault();
@@ -950,7 +950,7 @@ function targetTerminal() {
 }
 
 async function checkStale(s) {
-  if (!s || s.kind !== 'file' || s.checking) return;
+  if (!s || s.kind !== 'file' || s.viewer || s.checking) return;
   s.checking = true;
   try {
     const mtime = await window.files.stat(s.file);
@@ -958,7 +958,81 @@ async function checkStale(s) {
   } finally { s.checking = false; }
 }
 
+// Read-only viewer for files that are not editable text: pictures, PDFs, audio and video show their
+// content; anything else shows an info card with buttons to open it elsewhere.
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function createViewerSession(opened, restore) {
+  const id = restore ? restore.id : window.pty.newId();
+  const file = opened.path;
+  const base = file.split(/[\\/]/).pop() || file;
+  const element = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const host = element('div', 'file-host');
+  host.tabIndex = -1;
+  const toolbar = element('div', 'file-toolbar');
+  const badge = element('span', 'file-badge', `Read-only view · ${formatSize(opened.size)}`);
+  badge.title = file;
+  const revealButton = element('button', '', 'Show in folder');
+  revealButton.type = 'button';
+  const openButton = element('button', '', 'Open with default app');
+  openButton.type = 'button';
+  toolbar.append(badge, revealButton, openButton);
+  const body = element('div', 'viewer-body');
+  let content;
+  if (opened.view === 'image') {
+    content = element('img', 'viewer-image');
+    content.alt = base;
+    content.src = opened.url;
+  } else if (opened.view === 'pdf') {
+    content = element('iframe', 'viewer-frame');
+    content.title = base;
+    content.src = opened.url;
+  } else if (opened.view === 'video' || opened.view === 'audio') {
+    content = element(opened.view, 'viewer-media');
+    content.controls = true;
+    content.src = opened.url;
+  } else {
+    content = element('div', 'viewer-info');
+    content.append(element('strong', '', base), element('p', '', opened.reason || 'This file cannot be shown here.'),
+      element('p', 'viewer-hint', 'Use the buttons above to open it in another app.'));
+  }
+  body.append(content);
+  const notice = element('div', 'file-banner');
+  notice.hidden = true;
+  host.append(toolbar, notice, body);
+  revealButton.addEventListener('click', () => window.files.reveal(file));
+  openButton.addEventListener('click', async () => {
+    const error = await window.files.openExternal(file);
+    notice.textContent = error || '';
+    notice.hidden = !error;
+  });
+  if (content.addEventListener && opened.view !== 'info') {
+    content.addEventListener('error', () => {
+      notice.textContent = 'This file could not be displayed here. Try "Open with default app".';
+      notice.hidden = false;
+    });
+  }
+  const s = {
+    id, kind: 'file', viewer: true, name: restore?.name || base, tint: restore?.tint, host, file,
+    opened: true, exited: false, working: false, unseen: false, approval: false, lastOutputAt: 0,
+    dispose() { if (content.pause) content.pause(); },
+    async flush() {},
+  };
+  sessions.set(id, s);
+  return s;
+}
+
 function createFileSession(opened, restore) {
+  if (opened.view) return createViewerSession(opened, restore);
   const id = restore ? restore.id : window.pty.newId();
   const file = opened.path;
   const base = file.split(/[\\/]/).pop() || file;

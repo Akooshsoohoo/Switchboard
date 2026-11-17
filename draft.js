@@ -2,6 +2,19 @@
   // Pure helpers for pseudoedit: edits go to a draft copy, never to the original file.
   const MAX_BYTES = 2 * 1024 * 1024;
 
+  // Which read-only viewer a file gets, by extension. Anything else is tried as text first.
+  const VIEW_KINDS = {
+    image: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'avif'],
+    pdf: ['pdf'],
+    video: ['mp4', 'webm', 'ogv', 'mov', 'm4v'],
+    audio: ['mp3', 'wav', 'ogg', 'oga', 'm4a', 'flac', 'aac'],
+  };
+  function viewKind(file) {
+    const ext = String(file).split('.').pop().toLowerCase();
+    for (const [kind, exts] of Object.entries(VIEW_KINDS)) if (exts.includes(ext)) return kind;
+    return null;
+  }
+
   function isBinary(text) {
     return text.includes('\u0000');
   }
@@ -97,7 +110,7 @@
     return out.join('\n') + '\n';
   }
 
-  const api = { MAX_BYTES, isBinary, hash, draftName, unifiedDiff };
+  const api = { MAX_BYTES, viewKind, isBinary, hash, draftName, unifiedDiff };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SwitchboardDraft = api;
 })(globalThis);

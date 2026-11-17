@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, Menu, dialog, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, Menu, dialog, nativeTheme, shell } = require('electron');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const path = require('path');
@@ -273,9 +273,18 @@ ipcMain.handle('files:open', async (e) => {
 });
 
 // Read a file (never writes it) plus any existing draft, in the shape the file pane expects.
+// Pictures, PDFs and media get a read-only viewer; text gets the draft editor; anything else (binary,
+// or over 2 MB) gets an info card, so every file opens as something.
 function openedFromPath(file) {
   try {
-    const opened = { path: file, ...readTextFile(file) };
+    const stat = fs.statSync(file);
+    if (!stat.isFile()) throw new Error('That is not a file.');
+    const kind = draftHelpers.viewKind(file);
+    const viewer = (view, reason) => ({ path: file, view, reason, size: stat.size, mtimeMs: stat.mtimeMs, url: require('url').pathToFileURL(file).href });
+    if (kind) return viewer(kind);
+    let text;
+    try { text = readTextFile(file); } catch (error) { return viewer('info', error.message); }
+    const opened = { path: file, ...text };
     const draftPath = path.join(draftsDir(), draftHelpers.draftName(file));
     try {
       opened.draft = fs.readFileSync(draftPath, 'utf8');
@@ -342,6 +351,9 @@ app.on('second-instance', (_e, argv) => {
   const target = pathFromArgs(argv);
   if (target) handleExternalPath(target);
 });
+
+ipcMain.on('files:reveal', (_e, file) => shell.showItemInFolder(file));
+ipcMain.handle('files:openExternal', async (_e, file) => (await shell.openPath(file)) || null);
 
 // Used when a file pane moves to another window: its draft is reloaded from disk.
 ipcMain.handle('files:openPath', (_e, file) => openedFromPath(file));
