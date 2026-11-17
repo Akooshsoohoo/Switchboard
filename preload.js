@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('files', {
   open: () => ipcRenderer.invoke('files:open'),
   openPath: (file) => ipcRenderer.invoke('files:openPath', file),
   read: (file) => ipcRenderer.invoke('files:read', file),
+  reveal: (file) => ipcRenderer.send('files:reveal', file),
+  openExternal: (file) => ipcRenderer.invoke('files:openExternal', file),
   stat: (file) => ipcRenderer.invoke('files:stat', file),
   saveDraft: (file, text, origText) => ipcRenderer.invoke('files:saveDraft', file, text, origText),
   discardDraft: (file) => ipcRenderer.invoke('files:discardDraft', file),

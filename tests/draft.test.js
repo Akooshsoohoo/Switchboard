@@ -47,3 +47,13 @@ test('draft names are stable, safe, and differ by path', () => {
   assert.match(a, /^[0-9a-f]{8}-main\.py$/);
   assert.match(draftName('C:\\x\\we ird:name?.txt'), /^[0-9a-f]{8}-we_ird_name_\.txt$/);
 });
+
+test('viewKind picks a viewer by extension, case-insensitively', () => {
+  const { viewKind } = require('../draft');
+  assert.equal(viewKind('C:\a\Photo.PNG'), 'image');
+  assert.equal(viewKind('doc.pdf'), 'pdf');
+  assert.equal(viewKind('clip.mp4'), 'video');
+  assert.equal(viewKind('song.mp3'), 'audio');
+  assert.equal(viewKind('notes.md'), null);
+  assert.equal(viewKind('Makefile'), null);
+});
